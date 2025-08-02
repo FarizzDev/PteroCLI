@@ -17,20 +17,83 @@ let lang = {};
 const CONFIG_PATH = path.join(__dirname, "config.json");
 
 // --- PTERODACTYL API CONFIG ---
-const PANEL_URL = process.env.PTERO_URL;
-const API_KEY = process.env.PTERO_KEY;
+let PANEL_URL = process.env.PTERO_URL;
+let API_KEY = process.env.PTERO_KEY;
 // --------------------------------
 
-const api = axios.create({
-  baseURL: `${PANEL_URL}/api/client`,
-  headers: {
-    Authorization: `Bearer ${API_KEY}`,
-    Accept: "Application/vnd.pterodactyl.v1+json",
-    "Content-Type": "application/json",
-  },
-});
-
+let api; // Will be initialized after config validation.
 let ws; // WebSocket connection
+
+async function validateAndPromptEnv() {
+  let envFile = "";
+  const envPath = path.join(__dirname, ".env");
+
+  if (!PANEL_URL || !API_KEY) {
+    console.log(
+      chalk.yellow("Pterodactyl API configuration not found. Let's set it up."),
+    );
+
+    // Read existing .env file if it exists
+    if (fs.existsSync(envPath)) envFile = fs.readFileSync(envPath, "utf8");
+  }
+
+  if (!PANEL_URL) {
+    const { ptero_url } = await inquirer.prompt({
+      type: "input",
+      name: "ptero_url",
+      message:
+        "Enter your Pterodactyl panel URL (e.g., https://panel.example.com):",
+      validate: function (value) {
+        try {
+          const url = new URL(value);
+          if (url.protocol !== "http:" && url.protocol !== "https:") {
+            return "Please enter a valid HTTP/HTTPS URL.";
+          }
+          return true;
+        } catch (error) {
+          return "Please enter a valid URL.";
+        }
+      },
+    });
+    const urlObject = new URL(ptero_url);
+    PANEL_URL = urlObject.origin;
+    envFile += `\nPTERO_URL=${PANEL_URL}`;
+  }
+  if (!API_KEY) {
+    const { ptero_key } = await inquirer.prompt({
+      type: "input",
+      name: "ptero_key",
+      message: "Enter your Pterodactyl client API Key:",
+      validate: function (value) {
+        if (value && value.trim().length) {
+          return true;
+        }
+        return "API Key cannot be empty.";
+      },
+    });
+    API_KEY = ptero_key;
+    envFile += `\nPTERO_KEY=${API_KEY}`;
+  }
+
+  if (envFile) {
+    fs.writeFileSync(envPath, envFile);
+
+    // Update current process's env for the current session
+    process.env.PTERO_URL = PANEL_URL;
+    process.env.PTERO_KEY = API_KEY;
+
+    console.log(chalk.green("✅ Configuration saved to .env file."));
+  }
+  // Initialize the API client with the (potentially new) credentials
+  api = axios.create({
+    baseURL: `${PANEL_URL}/api/client`,
+    headers: {
+      Authorization: `Bearer ${API_KEY}`,
+      Accept: "Application/vnd.pterodactyl.v1+json",
+      "Content-Type": "application/json",
+    },
+  });
+}
 
 // --- LANGUAGE & CONFIG FUNCTIONS ---
 
@@ -128,6 +191,7 @@ async function settingsMenu() {
 async function main() {
   loadConfig();
   loadLanguage();
+  await validateAndPromptEnv();
 
   while (true) {
     try {
@@ -989,19 +1053,26 @@ async function copyItem(serverId, currentPath, item, silent = false) {
   try {
     let confirm = true;
     if (!silent) {
-        const { confirmed } = await inquirer.prompt([
-            {
-                type: "confirm",
-                name: "confirmed",
-                message: lang.fileManager.copy_confirm.replace("{item}", chalk.yellow.bold(item.name)),
-                default: true,
-            },
-        ]);
-        confirm = confirmed;
+      const { confirmed } = await inquirer.prompt([
+        {
+          type: "confirm",
+          name: "confirmed",
+          message: lang.fileManager.copy_confirm.replace(
+            "{item}",
+            chalk.yellow.bold(item.name),
+          ),
+          default: true,
+        },
+      ]);
+      confirm = confirmed;
     }
 
     if (confirm) {
-      console.log(chalk.yellow(lang.fileManager.copying_item.replace("{item}", item.name)));
+      console.log(
+        chalk.yellow(
+          lang.fileManager.copying_item.replace("{item}", item.name),
+        ),
+      );
       await api.post(`/servers/${serverId}/files/copy`, {
         location: path.join(currentPath, item.name),
       });
@@ -1019,9 +1090,9 @@ async function copyItem(serverId, currentPath, item, silent = false) {
       chalk.red(
         lang.fileManager.copy_fail.replace(
           "{error}",
-          error.response?.data?.errors?.[0]?.detail || error.message
-        )
-      )
+          error.response?.data?.errors?.[0]?.detail || error.message,
+        ),
+      ),
     );
     return false;
   }
@@ -1039,10 +1110,17 @@ async function moveItem(serverId, currentPath, item) {
     ]);
 
     if (newPath) {
-      console.log(chalk.yellow(lang.fileManager.moving_item.replace("{item}", item.name)));
+      console.log(
+        chalk.yellow(lang.fileManager.moving_item.replace("{item}", item.name)),
+      );
       await api.put(`/servers/${serverId}/files/rename`, {
         root: "/",
-        files: [{ from: path.join(currentPath, item.name), to: path.join(newPath, item.name) }],
+        files: [
+          {
+            from: path.join(currentPath, item.name),
+            to: path.join(newPath, item.name),
+          },
+        ],
       });
       console.log(chalk.green(lang.fileManager.move_success));
     }
@@ -1051,9 +1129,9 @@ async function moveItem(serverId, currentPath, item) {
       chalk.red(
         lang.fileManager.move_fail.replace(
           "{error}",
-          error.response?.data?.errors?.[0]?.detail || error.message
-        )
-      )
+          error.response?.data?.errors?.[0]?.detail || error.message,
+        ),
+      ),
     );
   }
 }
@@ -1088,7 +1166,10 @@ async function batchDelete(serverId, currentPath, items) {
     {
       type: "confirm",
       name: "confirm",
-      message: lang.fileManager.batch_delete_confirm.replace("{count}", selectedItems.length),
+      message: lang.fileManager.batch_delete_confirm.replace(
+        "{count}",
+        selectedItems.length,
+      ),
       default: false,
     },
   ]);
@@ -1100,15 +1181,22 @@ async function batchDelete(serverId, currentPath, items) {
         root: currentPath,
         files: selectedItems,
       });
-      console.log(chalk.green(lang.fileManager.batch_delete_success.replace("{count}", selectedItems.length)));
+      console.log(
+        chalk.green(
+          lang.fileManager.batch_delete_success.replace(
+            "{count}",
+            selectedItems.length,
+          ),
+        ),
+      );
     } catch (error) {
       console.error(
         chalk.red(
           lang.fileManager.batch_delete_fail.replace(
             "{error}",
-            error.response?.data?.errors?.[0]?.detail || error.message
-          )
-        )
+            error.response?.data?.errors?.[0]?.detail || error.message,
+          ),
+        ),
       );
     }
   } else {
@@ -1153,21 +1241,35 @@ async function batchMove(serverId, currentPath, items) {
 
   if (newPath) {
     try {
-      console.log(chalk.yellow(lang.fileManager.moving_item.replace("{item}", selectedItems.length)));
-      const files = selectedItems.map(item => ({ from: path.join(currentPath, item), to: path.join(newPath, item) }));
+      console.log(
+        chalk.yellow(
+          lang.fileManager.moving_item.replace("{item}", selectedItems.length),
+        ),
+      );
+      const files = selectedItems.map((item) => ({
+        from: path.join(currentPath, item),
+        to: path.join(newPath, item),
+      }));
       await api.put(`/servers/${serverId}/files/rename`, {
         root: "/",
         files,
       });
-      console.log(chalk.green(lang.fileManager.batch_move_success.replace("{count}", selectedItems.length)));
+      console.log(
+        chalk.green(
+          lang.fileManager.batch_move_success.replace(
+            "{count}",
+            selectedItems.length,
+          ),
+        ),
+      );
     } catch (error) {
       console.error(
         chalk.red(
           lang.fileManager.batch_move_fail.replace(
             "{error}",
-            error.response?.data?.errors?.[0]?.detail || error.message
-          )
-        )
+            error.response?.data?.errors?.[0]?.detail || error.message,
+          ),
+        ),
       );
     }
   }
@@ -1175,8 +1277,14 @@ async function batchMove(serverId, currentPath, items) {
 
 async function batchCopy(serverId, currentPath, items) {
   const allItems = [
-    ...items.dirs.map((d) => ({ name: `📁 ${d.name}`, value: { name: d.name, is_file: false }})),
-    ...items.files.map((f) => ({ name: `📄 ${f.name}`, value: { name: f.name, is_file: true }})),
+    ...items.dirs.map((d) => ({
+      name: `📁 ${d.name}`,
+      value: { name: d.name, is_file: false },
+    })),
+    ...items.files.map((f) => ({
+      name: `📄 ${f.name}`,
+      value: { name: f.name, is_file: true },
+    })),
   ];
 
   if (allItems.length === 0) {
@@ -1213,33 +1321,37 @@ async function batchCopy(serverId, currentPath, items) {
     let failCount = 0;
 
     for (const item of selectedItems) {
-        // 1. Copy item to the same directory first
-        const copied = await copyItem(serverId, currentPath, item, true);
-        if (copied) {
-            // 2. Move the copied item to the new path
-            const newName = item.name;
-            const fromPath = path.join(currentPath, `copy_of_${newName}`);
-            const toPath = path.join(newPath, newName);
-            try {
-                await api.put(`/servers/${serverId}/files/rename`, {
-                    root: "/",
-                    files: [{ from: fromPath, to: toPath }],
-                });
-                successCount++;
-            } catch (e) {
-                failCount++;
-                console.error(chalk.red(`Failed to move ${fromPath} to ${toPath}`));
-            }
-        } else {
-            failCount++;
+      // 1. Copy item to the same directory first
+      const copied = await copyItem(serverId, currentPath, item, true);
+      if (copied) {
+        // 2. Move the copied item to the new path
+        const newName = item.name;
+        const fromPath = path.join(currentPath, `copy_of_${newName}`);
+        const toPath = path.join(newPath, newName);
+        try {
+          await api.put(`/servers/${serverId}/files/rename`, {
+            root: "/",
+            files: [{ from: fromPath, to: toPath }],
+          });
+          successCount++;
+        } catch (e) {
+          failCount++;
+          console.error(chalk.red(`Failed to move ${fromPath} to ${toPath}`));
         }
+      } else {
+        failCount++;
+      }
     }
 
     if (failCount > 0) {
-        console.error(chalk.red(`${failCount} items failed to copy.`));
+      console.error(chalk.red(`${failCount} items failed to copy.`));
     }
     if (successCount > 0) {
-        console.log(chalk.green(lang.fileManager.batch_copy_success.replace("{count}", successCount)));
+      console.log(
+        chalk.green(
+          lang.fileManager.batch_copy_success.replace("{count}", successCount),
+        ),
+      );
     }
   }
 }

@@ -37,6 +37,32 @@ This project is built with Node.js and is designed to be fast, efficient, and ea
     npm install
     ```
 
+## ⚙️ Configuration
+
+The first time you run PteroCLI, it will ask you for your Pterodactyl Panel URL and a Client API Key. Here's how to get them:
+
+### 1. Panel URL (`PTERO_URL`)
+
+This is simply the main URL you use to access your Pterodactyl panel in your web browser.
+
+- **Example:** `https://panel.myhosting.com`
+
+Enter this full URL when prompted. The application will automatically use the base part of it (the origin).
+
+### 2. Client API Key (`PTERO_KEY`)
+
+This key allows PteroCLI to securely access your account.
+
+1.  Log in to your Pterodactyl panel.
+2.  Click on your account avatar in the top-right corner and select **"API Credentials"**.
+3.  Under the "API Keys" section, you can create a new key.
+4.  Enter a description for the key (e.g., "PteroCLI") and leave the "Allowed IPs" field blank (unless you have a static IP and want to restrict access).
+5.  Click **"Create"**.
+6.  Your API key will be displayed. **This is the only time you will see the full key, so copy it immediately!**
+7.  Paste this key into the PteroCLI prompt.
+
+The application will save these details in a `.env` file in the project directory so you don't have to enter them every time.
+
 ## 🎮 Usage
 
 To start PteroCLI, run the following command:
